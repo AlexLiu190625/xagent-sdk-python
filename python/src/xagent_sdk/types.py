@@ -157,14 +157,22 @@ class RotateKeyResult:
 class CreateTaskResult:
     """``POST /v1/chat/tasks`` 202 payload.
 
-    ``status`` is always ``TaskStatus.PENDING`` at this point; observe
-    transitions via ``client.tasks.get()`` or ``client.tasks.wait()``.
+    ``status`` is ``TaskStatus.RUNNING`` on current servers (older ones
+    may still report ``PENDING``); observe transitions via
+    ``client.tasks.get()`` or ``client.tasks.wait()``.
+
+    ``dispatch_class`` is the class the server gave the start command:
+    ``"interactive"`` or ``"batch"`` today, returned as sent so a value
+    added later does not break parsing. It is ``None`` when the server
+    runs the task in-process rather than through the dispatch queue, or
+    when the server predates the field.
     """
 
     task_id: int
     agent_id: int
     status: TaskStatus
     created_at: datetime
+    dispatch_class: str | None = None
 
 
 @dataclass(frozen=True)

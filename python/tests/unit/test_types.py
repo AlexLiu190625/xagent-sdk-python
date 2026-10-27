@@ -47,6 +47,23 @@ class TestParseCreateTask:
         assert c.created_at.tzinfo is not None
         assert isinstance(c, CreateTaskResult)
 
+    def test_older_server_shape_has_no_dispatch_class(self) -> None:
+        c = _parse_create_task(response("create_task"))
+        assert c.dispatch_class is None
+
+    def test_current_server_shape_carries_dispatch_class(self) -> None:
+        c = _parse_create_task(response("create_task_dispatch_class"))
+        assert c.status is TaskStatus.RUNNING
+        assert c.dispatch_class == "interactive"
+
+    def test_unknown_dispatch_class_passes_through(self) -> None:
+        # A class added by the server later must not make create() raise
+        # after the task already exists.
+        c = _parse_create_task(
+            {**response("create_task_dispatch_class"), "dispatch_class": "urgent"}
+        )
+        assert c.dispatch_class == "urgent"
+
 
 class TestParseAppend:
     def test_accepted_at_field(self) -> None:
