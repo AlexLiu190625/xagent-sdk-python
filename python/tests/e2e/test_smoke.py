@@ -70,15 +70,15 @@ def test_create_is_async(patient_agent_client: AgentClient) -> None:
     created = patient_agent_client.tasks.create(agent_id=agent_id, message="Say hi")
     post_elapsed = time.monotonic() - t0
 
-    assert created.status is TaskStatus.RUNNING, (
-        f"POST returned status={created.status.value!r}, expected 'running'"
+    assert created.status is TaskStatus.PENDING, (
+        f"POST returned status={created.status.value!r}, expected 'pending'"
     )
     assert post_elapsed < 5.0, (
         f"POST took {post_elapsed:.2f}s; v1 contract requires async "
         f"return (typically <=1s in practice). A backend that "
         f"synchronously executes the task during POST violates "
         f"async-polling semantics even when the response body reads "
-        f"status='running'."
+        f"status='pending'."
     )
 
 
