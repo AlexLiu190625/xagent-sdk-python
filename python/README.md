@@ -218,17 +218,33 @@ with AgentClient() as agent:
 
 `append()` returns immediately with `status='pending'` when the server
 queues the turn for its dispatcher, or `status='running'` when it runs
-the turn in-process. If you race two appends, the loser gets `TaskBusy`
-(409); just wait and retry:
+the turn in-process.
+
+When `append()` returns `pending`, the server has not started the new
+turn yet, and until it does `get()` still reports the previous turn: a
+task whose last turn finished shows `COMPLETED` (or `FAILED`) with that
+turn's `output`, so `wait()` right after the append can return the
+previous result at once. To wait for the new turn, read `completed_at`
+from `get()` before appending and poll until it changes (it is `None`
+while the new turn runs).
+
+If you race two appends, the loser gets `TaskBusy` (409). Waiting has the
+same caveat: `wait()` can return before the other caller's turn has
+started, so the retry below can raise `TaskBusy` again; catch it and
+retry after a pause:
 
 ```python
+import time
+
 from xagent_sdk import TaskBusy
 
-try:
-    agent.tasks.append(task.task_id, agent_id=42, message="...")
-except TaskBusy:
-    agent.tasks.wait(task.task_id)
-    agent.tasks.append(task.task_id, agent_id=42, message="...")
+for attempt in range(3):
+    try:
+        agent.tasks.append(task.task_id, agent_id=42, message="...")
+        break
+    except TaskBusy:
+        agent.tasks.wait(task.task_id)
+        time.sleep(1)
 ```
 
 `append()` raises `InteractionResponseRequired` if the task is
@@ -265,14 +281,17 @@ with AgentClient() as agent:
 `reply()` resumes the task's paused execution -- the same server-side
 run continues rather than a new one starting, unlike `append()` -- but
 that continuity is internal server state; the `AppendResult` it returns
-has no `run_id` field to check. It is also **not idempotent** -- there is
-no request-level idempotency key, so a client-side timeout does not tell
-you whether the answer was delivered. If a call raises
+has no `run_id` field to check. It is also **not idempotent** -- the SDK
+sends no request-level idempotency key, so a client-side timeout does
+not tell you whether the answer was delivered. If a call raises
 `XAgentTransportError` (network/timeout below the HTTP layer), call
-`get()` first and only retry if `status` is still `WAITING_FOR_USER`:
+`get()` first and only retry if `status` is still `WAITING_FOR_USER`.
+The retry can still raise `TaskBusy` when the server is still handling
+the first answer; treat that as "the first answer arrived" and do not
+retry again:
 
 ```python
-from xagent_sdk import XAgentTransportError
+from xagent_sdk import TaskBusy, XAgentTransportError
 
 task_id = result.info.task_id
 try:
@@ -280,7 +299,10 @@ try:
 except XAgentTransportError:
     info = agent.tasks.get(task_id)
     if info.status is TaskStatus.WAITING_FOR_USER:
-        agent.tasks.reply(task_id, agent_id=42, message="To Tokyo, next Friday")
+        try:
+            agent.tasks.reply(task_id, agent_id=42, message="To Tokyo, next Friday")
+        except TaskBusy:
+            pass  # the first answer is still being handled
 ```
 
 Even that check is not a full guarantee: the first reply may have

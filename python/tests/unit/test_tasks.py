@@ -182,6 +182,25 @@ class TestAppend:
         assert isinstance(result, AppendResult)
         assert result.status is TaskStatus.RUNNING
 
+    def test_queued_turn_reports_pending(
+        self, make_client: Callable[..., AgentClient]
+    ) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                202,
+                json={
+                    "task_id": 10,
+                    "agent_id": 7,
+                    "status": "pending",
+                    "accepted_at": "2026-05-10T03:01:00Z",
+                },
+            )
+
+        with make_client(handler) as c:
+            result = c.tasks.append(10, agent_id=7, message="next")
+
+        assert result.status is TaskStatus.PENDING
+
 
 class TestReply:
     def test_url_and_body(self, make_client: Callable[..., AgentClient]) -> None:

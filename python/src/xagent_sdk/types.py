@@ -181,11 +181,12 @@ class AppendResult:
     """``POST /v1/chat/tasks/{id}/messages`` 202 payload.
 
     Also the return type of ``client.tasks.reply()``
-    (``POST /v1/chat/tasks/{id}/reply``): the two endpoints return the
-    same shape, so the SDK does not carry a separate ``ReplyResult`` for
-    it. For ``append()``, ``status`` is ``TaskStatus.PENDING`` when the
-    server queues the turn for its dispatcher and ``TaskStatus.RUNNING``
-    when it runs the turn in-process; ``reply()`` documents its own
+    (``POST /v1/chat/tasks/{id}/reply``). The reply response has the
+    same fields plus ``command_id``, which this type does not expose; the
+    SDK does not carry a separate ``ReplyResult`` for it. For
+    ``append()``, ``status`` is ``TaskStatus.PENDING`` when the server
+    queues the turn for its dispatcher and ``TaskStatus.RUNNING`` when it
+    runs the turn in-process; ``reply()`` documents its own
     status. The timestamp field is ``accepted_at``, not ``created_at``.
     """
 
