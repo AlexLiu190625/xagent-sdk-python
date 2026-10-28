@@ -20,11 +20,6 @@ class TaskStatus(StrEnum):
     backend allows ``append()`` onto a paused task, transitioning it back
     to ``RUNNING``, and another caller may drive that, so waiting through
     it lets an observer see the transition.
-
-    ``QUEUED`` only appears on a ``reply()`` result: the server stored
-    the answer but is still waiting for execution capacity, and the task
-    itself stays ``WAITING_FOR_USER`` until the server resumes it.
-    ``get()`` never reports it.
     """
 
     PENDING = "pending"
@@ -33,7 +28,6 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
     PAUSED = "paused"
     WAITING_FOR_USER = "waiting_for_user"
-    QUEUED = "queued"
 
 
 class StepType(StrEnum):
