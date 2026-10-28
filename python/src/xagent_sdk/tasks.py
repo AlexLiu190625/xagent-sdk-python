@@ -1,5 +1,5 @@
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from xagent_sdk._events import TaskEventStream, open_task_event_stream
 from xagent_sdk.errors import TaskTimeout
@@ -69,9 +69,24 @@ class TasksAPI:
         agent_id: int,
         message: str,
         metadata: dict[str, Any] | None = None,
+        dispatch_class: Literal["interactive", "batch"] | None = None,
+        priority: int | None = None,
     ) -> CreateTaskResult:
         """``POST /v1/chat/tasks`` -- start a new task with the first user
-        message. The server returns 202 with ``status='pending'``.
+        message. The server returns 202 with ``status='running'``.
+
+        ``dispatch_class`` (``'interactive'`` or ``'batch'``) and
+        ``priority`` (an integer from -10 to 10, where an omitted value
+        means 0) are sent only when not ``None``; the server owns their
+        validation and answers 422 (``InvalidInput``) for anything it
+        rejects. They apply to this new task only: ``append()`` and
+        ``reply()`` do not accept them, the task keeps the values given
+        here, and its later execution commands inherit the priority
+        unless the deployment's own classification sets one.
+        Whether the server honors ``dispatch_class`` is a deployment
+        setting -- read ``CreateTaskResult.dispatch_class`` to see the
+        class the start command was given. A server that predates these
+        fields ignores them silently and reports ``dispatch_class=None``.
         """
         body: dict[str, Any] = {
             "agent_id": agent_id,
@@ -79,6 +94,10 @@ class TasksAPI:
         }
         if metadata is not None:
             body["metadata"] = metadata
+        if dispatch_class is not None:
+            body["dispatch_class"] = dispatch_class
+        if priority is not None:
+            body["priority"] = priority
         resp = self._client._request("POST", "/v1/chat/tasks", json=body)
         return _parse_create_task(resp.json())
 
@@ -532,6 +551,8 @@ class TasksAPI:
         timeout: float = 120.0,
         poll_interval: float = 1.0,
         metadata: dict[str, Any] | None = None,
+        dispatch_class: Literal["interactive", "batch"] | None = None,
+        priority: int | None = None,
     ) -> RunResult:
         """Single-turn convenience: ``create()`` + ``wait()`` + ``steps()``.
 
@@ -540,6 +561,9 @@ class TasksAPI:
             created = client.tasks.create(agent_id=..., message=...)
             info    = client.tasks.wait(created.task_id, timeout=...)
             steps   = client.tasks.steps(created.task_id)
+
+        ``metadata``, ``dispatch_class`` and ``priority`` are passed to
+        ``create()`` unchanged; see its docstring.
 
         ``timeout`` is the wall-clock budget for ``create`` + ``wait``
         combined: the time spent in ``create()`` is subtracted from the
@@ -566,7 +590,13 @@ class TasksAPI:
         if poll_interval < 0:
             raise ValueError("poll_interval must be non-negative")
         start = time.monotonic()
-        created = self.create(agent_id=agent_id, message=message, metadata=metadata)
+        created = self.create(
+            agent_id=agent_id,
+            message=message,
+            metadata=metadata,
+            dispatch_class=dispatch_class,
+            priority=priority,
+        )
         remaining = max(0.0, timeout - (time.monotonic() - start))
         info = self.wait(
             created.task_id, timeout=remaining, poll_interval=poll_interval

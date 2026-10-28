@@ -55,8 +55,58 @@ class TestCreate:
             "agent_id": 7,
             "message": {"role": "user", "content": "hi"},
         }
+        # Key set and order guard that omitting dispatch_class / priority
+        # leaves the request body unchanged for servers that predate them.
+        assert list(body) == ["agent_id", "message"]
         assert isinstance(result, CreateTaskResult)
         assert result.status is TaskStatus.PENDING
+
+    @pytest.mark.parametrize(
+        ("dispatch_class", "priority"), [("interactive", 5), ("batch", 0)]
+    )
+    def test_dispatch_class_and_priority_sent(
+        self,
+        make_client: Callable[..., AgentClient],
+        dispatch_class: str,
+        priority: int,
+    ) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(202, json=response("create_task_dispatch_class"))
+
+        with make_client(handler) as c:
+            c.tasks.create(
+                agent_id=7,
+                message="hi",
+                dispatch_class=dispatch_class,  # type: ignore[arg-type]
+                priority=priority,
+            )
+
+        body = json.loads(captured[0].content)
+        assert body["dispatch_class"] == dispatch_class
+        # 0 is falsy: it must still be sent, not dropped.
+        assert body["priority"] == priority
+
+    def test_only_given_field_is_sent(
+        self, make_client: Callable[..., AgentClient]
+    ) -> None:
+        captured: list[httpx.Request] = []
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            captured.append(req)
+            return httpx.Response(202, json=response("create_task_dispatch_class"))
+
+        with make_client(handler) as c:
+            c.tasks.create(agent_id=7, message="hi", priority=3)
+            c.tasks.create(agent_id=7, message="hi", dispatch_class="batch")
+
+        first, second = (json.loads(r.content) for r in captured)
+        assert "dispatch_class" not in first
+        assert first["priority"] == 3
+        assert "priority" not in second
+        assert second["dispatch_class"] == "batch"
 
     def test_metadata_included(self, make_client: Callable[..., AgentClient]) -> None:
         captured: list[httpx.Request] = []
@@ -641,6 +691,52 @@ class TestRun:
         assert result.status is TaskStatus.COMPLETED
         assert len(result.steps) == 1
         assert result.steps[0].type is StepType.MESSAGE
+
+    def test_run_forwards_dispatch_class_and_priority(
+        self, make_client: Callable[..., AgentClient]
+    ) -> None:
+        captured: list[httpx.Request] = []
+
+        def h(req: httpx.Request) -> httpx.Response:
+            if req.method == "POST" and req.url.path == "/v1/chat/tasks":
+                captured.append(req)
+                return httpx.Response(
+                    202,
+                    json={**response("create_task_dispatch_class"), "task_id": 42},
+                )
+            if req.method == "GET" and req.url.path == "/v1/chat/tasks/42":
+                return httpx.Response(
+                    200,
+                    json={
+                        "task_id": 42,
+                        "agent_id": 7,
+                        "status": "completed",
+                        "input": "hi",
+                        "output": "final",
+                        "error": None,
+                        "created_at": "2026-05-10T03:00:00Z",
+                        "completed_at": "2026-05-10T03:00:01Z",
+                    },
+                )
+            if req.method == "GET" and req.url.path == "/v1/chat/tasks/42/steps":
+                return httpx.Response(
+                    200, json={"task_id": 42, "agent_id": 7, "steps": []}
+                )
+            return httpx.Response(404)
+
+        with make_client(h) as c:
+            c.tasks.run(
+                agent_id=7,
+                message="hi",
+                dispatch_class="batch",
+                priority=0,
+                timeout=2.0,
+                poll_interval=0.01,
+            )
+
+        body = json.loads(captured[0].content)
+        assert body["dispatch_class"] == "batch"
+        assert body["priority"] == 0
 
     def test_timeout_propagates(self, make_client: Callable[..., AgentClient]) -> None:
         def h(req: httpx.Request) -> httpx.Response:
