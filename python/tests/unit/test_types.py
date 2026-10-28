@@ -53,7 +53,7 @@ class TestParseCreateTask:
 
     def test_current_server_shape_carries_dispatch_class(self) -> None:
         c = _parse_create_task(response("create_task_dispatch_class"))
-        assert c.status is TaskStatus.RUNNING
+        assert c.status is TaskStatus.PENDING
         assert c.dispatch_class == "interactive"
 
     def test_unknown_dispatch_class_passes_through(self) -> None:

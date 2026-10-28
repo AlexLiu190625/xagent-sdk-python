@@ -30,7 +30,7 @@ row below.
 | `agents_create.json` | `POST /v1/agents` or `POST /v1/agents/from-template` | Nested `{agent: {id, name, ...}, api_key: {full_key, key_prefix, created_at}}`; the `api_key` block is present only when `generate_runtime_key=True` |
 | `rotate_key.json` | `POST /v1/agents/{id}/api-key` | Rotation result with one-time `full_key` and public-safe `key_prefix` |
 | `create_task.json` | `POST /v1/chat/tasks` (202) | Older-server shape: initial `status=pending`, no `dispatch_class` |
-| `create_task_dispatch_class.json` | `POST /v1/chat/tasks` (202) | Current-server shape: `status=running`, carries `run_id`, `state_version`, `control_state` and `dispatch_class` |
+| `create_task_dispatch_class.json` | `POST /v1/chat/tasks` (202) | Current queued-server shape: `status=pending`, carries `run_id`, `state_version`, `control_state` and `dispatch_class` |
 | `append_task.json` | `POST /v1/chat/tasks/{id}/messages` (202) | `status=running`, carries `accepted_at` (not `created_at`) |
 | `task_info_completed.json` | `GET /v1/chat/tasks/{id}` (200) | Terminal state, `output` populated |
 | `task_info_waiting.json` | `GET /v1/chat/tasks/{id}` (200) | `status=waiting_for_user` with a structured `pending_interaction.interactions` list |
