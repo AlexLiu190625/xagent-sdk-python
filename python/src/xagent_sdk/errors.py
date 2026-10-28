@@ -156,6 +156,10 @@ class MalformedResponse(XAgentError):
     SDK-coined string ``malformed_response``; the server never emits it,
     so it is absent from ``_CODE_MAP``.
 
+    ``create()``, ``append()`` and ``reply()`` also raise it when their
+    202 body does not validate. The server has accepted the write by
+    then, so call ``get()`` before retrying.
+
     ``TasksAPI.events()`` also raises it when the stream's 200 response
     declares a media type other than ``text/event-stream``, or declares
     a charset other than UTF-8 -- SSE bodies are UTF-8 by definition,

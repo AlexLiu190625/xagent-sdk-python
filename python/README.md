@@ -339,7 +339,7 @@ SDK-coined codes:
 | Exception | Cause |
 |---|---|
 | `XAgentTransportError` | network / DNS / TLS error below the HTTP layer, or an `events()` stream whose last frame was not a closing frame |
-| `MalformedResponse` | HTTP succeeded but the body did not match the shape the SDK needs; `events()` also raises it when the stream endpoint answers 200 with a content type other than `text/event-stream` or a declared charset other than UTF-8, or with a status that is neither an error nor 200 (a redirect or a 204) -- the latter carrying that status on `http_status` |
+| `MalformedResponse` | HTTP succeeded but the body did not match the shape the SDK needs; `events()` also raises it when the stream endpoint answers 200 with a content type other than `text/event-stream` or a declared charset other than UTF-8, or with a status that is neither an error nor 200 (a redirect or a 204) -- the latter carrying that status on `http_status`; `create()`/`append()`/`reply()` raise it when the 202 body does not validate, after the server accepted the write -- call `get()` before retrying |
 | `TaskTimeout` | `wait()` / `run()` deadline elapsed, or `events()`'s own `timeout` budget -- which covers every read the stream still owes, including time spent between frames, and hands over to a bounded post-close drain once a closing frame has arrived, which ends the stream cleanly rather than raising -- ran out first |
 
 The SDK does **not** retry automatically. Wrap calls with your own
