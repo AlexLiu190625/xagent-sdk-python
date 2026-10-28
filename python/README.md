@@ -213,20 +213,41 @@ with AgentClient() as agent:
         task.task_id, agent_id=42, message="Now reply with 'second'."
     )
     info = agent.tasks.wait(task.task_id)
-    print(info.output)  # latest assistant turn
+    print(info.output)  # can still be the previous turn if append() returned 'pending'; see below
 ```
 
-`append()` returns immediately with `status='running'`. If you race
-two appends, the loser gets `TaskBusy` (409); just wait and retry:
+`append()` returns immediately with `status='pending'` when the server
+queues the turn for its dispatcher, or `status='running'` when it runs
+the turn in-process.
+
+When `append()` returns `pending`, the server has not started the new
+turn yet, and until it does `get()` still reports the previous turn: a
+task whose last turn finished shows `COMPLETED` (or `FAILED`) with that
+turn's `output`, so `wait()` right after the append can return the
+previous result at once. For a task whose last turn had finished, read
+`completed_at` from `get()` before appending; once `get()` shows a
+different value (`None` while the new turn runs, a later time once it
+ends), the server is on the new turn and `wait()` returns its result.
+
+If you race two appends, the loser gets `TaskBusy` (409). Waiting has the
+same caveat: `wait()` can return before the other caller's turn has
+started, so the retry below can raise `TaskBusy` again; catch it and
+retry after a pause:
 
 ```python
+import time
+
 from xagent_sdk import TaskBusy
 
-try:
-    agent.tasks.append(task.task_id, agent_id=42, message="...")
-except TaskBusy:
-    agent.tasks.wait(task.task_id)
-    agent.tasks.append(task.task_id, agent_id=42, message="...")
+for attempt in range(3):
+    try:
+        agent.tasks.append(task.task_id, agent_id=42, message="...")
+        break
+    except TaskBusy:
+        if attempt == 2:
+            raise
+        agent.tasks.wait(task.task_id)
+        time.sleep(1)
 ```
 
 `append()` raises `InteractionResponseRequired` if the task is
@@ -263,14 +284,18 @@ with AgentClient() as agent:
 `reply()` resumes the task's paused execution -- the same server-side
 run continues rather than a new one starting, unlike `append()` -- but
 that continuity is internal server state; the `AppendResult` it returns
-has no `run_id` field to check. It is also **not idempotent** -- there is
-no request-level idempotency key, so a client-side timeout does not tell
-you whether the answer was delivered. If a call raises
+has no `run_id` field to check. It is also **not idempotent** -- the SDK
+sends no request-level idempotency key, so a client-side timeout does
+not tell you whether the answer was delivered. If a call raises
 `XAgentTransportError` (network/timeout below the HTTP layer), call
-`get()` first and only retry if `status` is still `WAITING_FOR_USER`:
+`get()` first and only retry if `status` is still `WAITING_FOR_USER`.
+The retry can still raise `TaskBusy` while the server is still handling
+an earlier answer -- yours or another caller's. That does not mean your
+answer was applied: the earlier one can still be rejected. Wait, call
+`get()` again and repeat this check:
 
 ```python
-from xagent_sdk import XAgentTransportError
+from xagent_sdk import TaskBusy, XAgentTransportError
 
 task_id = result.info.task_id
 try:
@@ -278,7 +303,12 @@ try:
 except XAgentTransportError:
     info = agent.tasks.get(task_id)
     if info.status is TaskStatus.WAITING_FOR_USER:
-        agent.tasks.reply(task_id, agent_id=42, message="To Tokyo, next Friday")
+        try:
+            agent.tasks.reply(task_id, agent_id=42, message="To Tokyo, next Friday")
+        except TaskBusy:
+            # an earlier answer is still being handled and may still be
+            # rejected; check get() again later
+            pass
 ```
 
 Even that check is not a full guarantee: the first reply may have
@@ -315,7 +345,7 @@ SDK-coined codes:
 | Exception | Cause |
 |---|---|
 | `XAgentTransportError` | network / DNS / TLS error below the HTTP layer, or an `events()` stream whose last frame was not a closing frame |
-| `MalformedResponse` | HTTP succeeded but the body did not match the shape the SDK needs; `events()` also raises it when the stream endpoint answers 200 with a content type other than `text/event-stream` or a declared charset other than UTF-8, or with a status that is neither an error nor 200 (a redirect or a 204) -- the latter carrying that status on `http_status` |
+| `MalformedResponse` | HTTP succeeded but the body did not match the shape the SDK needs; `events()` also raises it when the stream endpoint answers 200 with a content type other than `text/event-stream` or a declared charset other than UTF-8, or with a status that is neither an error nor 200 (a redirect or a 204) -- the latter carrying that status on `http_status`; `create()`/`append()`/`reply()` raise it when the 202 body does not validate, after the server accepted the write, so do not resend it blindly: a retried `create()` starts a second task, and a retried `append()`/`reply()` can send the message twice |
 | `TaskTimeout` | `wait()` / `run()` deadline elapsed, or `events()`'s own `timeout` budget -- which covers every read the stream still owes, including time spent between frames, and hands over to a bounded post-close drain once a closing frame has arrived, which ends the stream cleanly rather than raising -- ran out first |
 
 The SDK does **not** retry automatically. Wrap calls with your own
@@ -372,7 +402,7 @@ only.
 |---|---|---|
 | `AgentClient(api_key, base_url, ...)` | `AgentClient` | env-var fallback: `XAGENT_API_KEY` / `XAGENT_BASE_URL` |
 | `agent.tasks.create(*, agent_id, message, metadata=None, dispatch_class=None, priority=None)` | `CreateTaskResult` | POST `/v1/chat/tasks`; returns immediately, `status='pending'` when the server queues the task for its dispatcher or `'running'` when it runs the task in-process; `dispatch_class` (`'interactive'`/`'batch'`) and `priority` (-10..10) apply to the new task only, the server validates them (422 → `InvalidInput`) and an older server ignores them; the result's `dispatch_class` shows the class the server gave the start command (`None` if not dispatched through a queue or on an older server) |
-| `agent.tasks.append(task_id, *, agent_id, message, metadata=None)` | `AppendResult` | POST `/v1/chat/tasks/{id}/messages`; `status='running'`; raises `TaskBusy` if prior turn is still running, `InteractionResponseRequired` if `WAITING_FOR_USER` |
+| `agent.tasks.append(task_id, *, agent_id, message, metadata=None)` | `AppendResult` | POST `/v1/chat/tasks/{id}/messages`; `status='pending'` (queued) or `'running'` (in-process); raises `TaskBusy` if the prior turn is still queued or running, `InteractionResponseRequired` if `WAITING_FOR_USER` |
 | `agent.tasks.reply(task_id, *, agent_id, message)` | `AppendResult` | POST `/v1/chat/tasks/{id}/reply`; answers a `WAITING_FOR_USER` task's pending question and resumes its server-side run (no `run_id` field on the response to check); not idempotent |
 | `agent.tasks.get(task_id)` | `TaskInfo` | GET `/v1/chat/tasks/{id}`; latest-turn `input`/`output`; `pending_interaction` when `WAITING_FOR_USER` |
 | `agent.tasks.steps(task_id)` | `list[Step]` | GET `/v1/chat/tasks/{id}/steps`; full timeline |

@@ -42,10 +42,10 @@ class TaskNotFound(XAgentError):
 class TaskBusy(XAgentError):
     """HTTP 409, code ``task_busy``. Retryable (caller decides when).
 
-    Raised when the task is currently ``RUNNING`` and cannot accept a
-    new turn or a reply yet, or when a concurrent ``reply()`` already
-    claimed it. ``TemporarilyUnavailable`` is the other retryable code
-    in this hierarchy.
+    Raised when the task is currently ``RUNNING`` or has an earlier turn
+    still queued, and cannot accept a new turn or a reply yet, or when a
+    concurrent ``reply()`` already claimed it. ``TemporarilyUnavailable``
+    is the other retryable code in this hierarchy.
     """
 
 
@@ -155,6 +155,12 @@ class MalformedResponse(XAgentError):
     not the problem -- the decoded payload was. The ``code`` is the
     SDK-coined string ``malformed_response``; the server never emits it,
     so it is absent from ``_CODE_MAP``.
+
+    ``create()``, ``append()`` and ``reply()`` also raise it when their
+    202 body does not validate. The server has accepted the write by
+    then, so do not resend it blindly: a retried ``create()`` starts a
+    second task, and a retried ``append()``/``reply()`` can send the
+    message twice.
 
     ``TasksAPI.events()`` also raises it when the stream's 200 response
     declares a media type other than ``text/event-stream``, or declares

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from xagent_sdk import (
     AgentClient,
@@ -15,6 +16,7 @@ from xagent_sdk import (
     InteractionNotResumable,
     InteractionResponseRequired,
     InvalidInput,
+    MalformedResponse,
     NoPendingInteraction,
     RunResult,
     StepType,
@@ -182,6 +184,25 @@ class TestAppend:
         assert isinstance(result, AppendResult)
         assert result.status is TaskStatus.RUNNING
 
+    def test_queued_turn_reports_pending(
+        self, make_client: Callable[..., AgentClient]
+    ) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                202,
+                json={
+                    "task_id": 10,
+                    "agent_id": 7,
+                    "status": "pending",
+                    "accepted_at": "2026-05-10T03:01:00Z",
+                },
+            )
+
+        with make_client(handler) as c:
+            result = c.tasks.append(10, agent_id=7, message="next")
+
+        assert result.status is TaskStatus.PENDING
+
 
 class TestReply:
     def test_url_and_body(self, make_client: Callable[..., AgentClient]) -> None:
@@ -222,6 +243,56 @@ class TestReply:
 
         body = json.loads(captured[0].content)
         assert set(body.keys()) == {"agent_id", "message"}
+
+
+class TestMalformedWriteResponse:
+    """A 202 body that does not validate surfaces as MalformedResponse."""
+
+    @pytest.mark.parametrize(
+        ("call", "body"),
+        [
+            (
+                lambda c: c.tasks.create(agent_id=7, message="hi"),
+                {"task_id": 10, "agent_id": 7, "status": "bogus"},
+            ),
+            (
+                lambda c: c.tasks.append(10, agent_id=7, message="next"),
+                {
+                    "task_id": 10,
+                    "agent_id": 7,
+                    "status": "bogus",
+                    "accepted_at": "2026-05-10T03:01:00Z",
+                },
+            ),
+            (
+                lambda c: c.tasks.reply(10, agent_id=7, message="answer"),
+                {
+                    "task_id": 10,
+                    "agent_id": 7,
+                    "status": "bogus",
+                    "accepted_at": "2026-05-10T03:01:00Z",
+                },
+            ),
+        ],
+        ids=["create", "append", "reply"],
+    )
+    def test_bad_status_raises_malformed_response(
+        self,
+        make_client: Callable[..., AgentClient],
+        call: Callable[[AgentClient], object],
+        body: dict[str, object],
+    ) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(202, json=body)
+
+        with (
+            make_client(handler) as c,
+            pytest.raises(MalformedResponse) as excinfo,
+        ):
+            call(c)
+
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+        assert "status" in str(excinfo.value)
 
 
 class TestGet:

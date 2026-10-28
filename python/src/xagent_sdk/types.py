@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypeVar
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from xagent_sdk.errors import MalformedResponse
 
@@ -181,12 +181,13 @@ class AppendResult:
     """``POST /v1/chat/tasks/{id}/messages`` 202 payload.
 
     Also the return type of ``client.tasks.reply()``
-    (``POST /v1/chat/tasks/{id}/reply``): the two endpoints return the
-    same shape with the same field semantics, so the SDK does not carry
-    a separate ``ReplyResult`` for it. ``status`` is ``TaskStatus.RUNNING``
-    -- the backend's atomic claim has already flipped the task row by the
-    time the response is built. The timestamp field is ``accepted_at``
-    (when the server scheduled execution), not ``created_at``.
+    (``POST /v1/chat/tasks/{id}/reply``). The reply response has the
+    same fields plus ``command_id``, which this type does not expose; the
+    SDK does not carry a separate ``ReplyResult`` for it. For
+    ``append()``, ``status`` is ``TaskStatus.PENDING`` when the server
+    queues the turn for its dispatcher and ``TaskStatus.RUNNING`` when it
+    runs the turn in-process; ``reply()`` documents its own
+    status. The timestamp field is ``accepted_at``, not ``created_at``.
     """
 
     task_id: int
@@ -404,6 +405,33 @@ def _require_mapping(data: Any, what: str) -> dict[str, Any]:
     return data
 
 
+T = TypeVar("T")
+
+
+def _validate_write(adapter: TypeAdapter[T], data: Any, what: str) -> T:
+    """Validate a write endpoint's 202 body, or raise ``MalformedResponse``.
+
+    The server has already accepted the write when this runs, so a body
+    that does not validate must surface as the SDK's documented
+    ``MalformedResponse`` rather than a raw pydantic ``ValidationError``;
+    callers must not resend the write blindly: a retried ``create()``
+    starts a second task, and a retried ``append()``/``reply()`` can send
+    the message twice.
+    """
+    try:
+        return adapter.validate_python(_require_mapping(data, what))
+    except ValidationError as exc:
+        fields = ", ".join(
+            ".".join(str(p) for p in err["loc"]) or "<root>" for err in exc.errors()
+        )
+        raise MalformedResponse(
+            "malformed_response",
+            f"{what} response did not match the expected shape ({fields}); "
+            "the server accepted the request",
+            http_status=None,
+        ) from exc
+
+
 def _parse_user_principal(data: Any) -> UserPrincipal:
     return _USER_PRINCIPAL_ADAPTER.validate_python(
         _require_mapping(data, "user principal")
@@ -506,11 +534,11 @@ def _parse_rotate_key(data: Any) -> RotateKeyResult:
 
 
 def _parse_create_task(data: Any) -> CreateTaskResult:
-    return _CREATE_ADAPTER.validate_python(_require_mapping(data, "task creation"))
+    return _validate_write(_CREATE_ADAPTER, data, "task creation")
 
 
 def _parse_append(data: Any) -> AppendResult:
-    return _APPEND_ADAPTER.validate_python(_require_mapping(data, "task append"))
+    return _validate_write(_APPEND_ADAPTER, data, "task append")
 
 
 def _parse_task_info(data: Any) -> TaskInfo:

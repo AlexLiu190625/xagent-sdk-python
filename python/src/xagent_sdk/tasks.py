@@ -113,11 +113,12 @@ class TasksAPI:
     ) -> AppendResult:
         """``POST /v1/chat/tasks/{task_id}/messages`` -- append the next
         user turn to an existing task. Server returns 202 with
-        ``status='running'`` (the atomic claim has already flipped the
-        task row). Raises ``TaskBusy`` if the task is still running an
-        earlier turn, or ``InteractionResponseRequired`` if the task is
-        currently ``WAITING_FOR_USER`` -- answer its pending question
-        with ``reply()`` instead.
+        ``status='pending'`` when it queues the turn for its dispatcher,
+        or ``status='running'`` when it runs the turn in-process. Raises
+        ``TaskBusy`` if the task is still running an earlier turn, or
+        ``InteractionResponseRequired`` if the task is currently
+        ``WAITING_FOR_USER`` -- answer its pending question with
+        ``reply()`` instead.
         """
         body: dict[str, Any] = {
             "agent_id": agent_id,
@@ -157,22 +158,25 @@ class TasksAPI:
         something this call's ``AppendResult`` return value exposes;
         there is no ``run_id`` field on it to check.
 
-        Not idempotent: unlike ``create()``/``append()``, there is no
-        request-level idempotency key backing this call, so a
-        client-side timeout does not tell you whether the answer was
-        delivered -- retrying blindly can deliver it twice. If a call
-        times out or the connection drops, call ``get(task_id)`` first;
-        only retry ``reply()`` if ``status`` is still
-        ``WAITING_FOR_USER``. Even that check is not a full guarantee:
-        the first reply may have already been delivered and the agent
-        may have immediately asked a *new* question, which also shows up
-        as ``WAITING_FOR_USER``. If ``pending_interaction`` is not
-        ``None``, comparing its ``question`` against the one you
-        answered rules out most of these cases -- but not a follow-up
-        question that happens to repeat the same text verbatim, and
-        ``pending_interaction`` can itself be ``None`` (see
-        ``PendingInteraction``), so "compare the question" is a partial
-        mitigation, not a guarantee.
+        Not idempotent: this SDK sends no request-level idempotency key
+        with this call, so a client-side timeout does not tell you
+        whether the answer was delivered -- retrying blindly can deliver
+        it twice. If a call times out or the connection drops, call
+        ``get(task_id)`` first; only retry ``reply()`` if ``status`` is
+        still ``WAITING_FOR_USER``. That retry can raise ``TaskBusy``
+        while the server is still handling an earlier answer; it does
+        not mean your answer was applied (the earlier answer, which may
+        be another caller's, can still be rejected); call ``get()``
+        again later and repeat the check. Even that check is not a
+        full guarantee: the first reply may have already been
+        delivered and the agent may have immediately asked a *new*
+        question, which also shows up as ``WAITING_FOR_USER``. If
+        ``pending_interaction`` is not ``None``, comparing its
+        ``question`` against the one you answered rules out most of
+        these cases -- but not a follow-up question that happens to
+        repeat the same text verbatim, and ``pending_interaction`` can
+        itself be ``None`` (see ``PendingInteraction``), so "compare
+        the question" is a partial mitigation, not a guarantee.
 
         Raises:
             NoPendingInteraction: the task is not currently
