@@ -216,8 +216,10 @@ with AgentClient() as agent:
     print(info.output)  # latest assistant turn
 ```
 
-`append()` returns immediately with `status='running'`. If you race
-two appends, the loser gets `TaskBusy` (409); just wait and retry:
+`append()` returns immediately with `status='pending'` when the server
+queues the turn for its dispatcher, or `status='running'` when it runs
+the turn in-process. If you race two appends, the loser gets `TaskBusy`
+(409); just wait and retry:
 
 ```python
 from xagent_sdk import TaskBusy
@@ -372,7 +374,7 @@ only.
 |---|---|---|
 | `AgentClient(api_key, base_url, ...)` | `AgentClient` | env-var fallback: `XAGENT_API_KEY` / `XAGENT_BASE_URL` |
 | `agent.tasks.create(*, agent_id, message, metadata=None, dispatch_class=None, priority=None)` | `CreateTaskResult` | POST `/v1/chat/tasks`; returns immediately, `status='pending'` when the server queues the task for its dispatcher or `'running'` when it runs the task in-process; `dispatch_class` (`'interactive'`/`'batch'`) and `priority` (-10..10) apply to the new task only, the server validates them (422 → `InvalidInput`) and an older server ignores them; the result's `dispatch_class` shows the class the server gave the start command (`None` if not dispatched through a queue or on an older server) |
-| `agent.tasks.append(task_id, *, agent_id, message, metadata=None)` | `AppendResult` | POST `/v1/chat/tasks/{id}/messages`; `status='running'`; raises `TaskBusy` if prior turn is still running, `InteractionResponseRequired` if `WAITING_FOR_USER` |
+| `agent.tasks.append(task_id, *, agent_id, message, metadata=None)` | `AppendResult` | POST `/v1/chat/tasks/{id}/messages`; `status='pending'` (queued) or `'running'` (in-process); raises `TaskBusy` if prior turn is still running, `InteractionResponseRequired` if `WAITING_FOR_USER` |
 | `agent.tasks.reply(task_id, *, agent_id, message)` | `AppendResult` | POST `/v1/chat/tasks/{id}/reply`; answers a `WAITING_FOR_USER` task's pending question and resumes its server-side run (no `run_id` field on the response to check); not idempotent |
 | `agent.tasks.get(task_id)` | `TaskInfo` | GET `/v1/chat/tasks/{id}`; latest-turn `input`/`output`; `pending_interaction` when `WAITING_FOR_USER` |
 | `agent.tasks.steps(task_id)` | `list[Step]` | GET `/v1/chat/tasks/{id}/steps`; full timeline |

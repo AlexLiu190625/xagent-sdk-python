@@ -182,11 +182,11 @@ class AppendResult:
 
     Also the return type of ``client.tasks.reply()``
     (``POST /v1/chat/tasks/{id}/reply``): the two endpoints return the
-    same shape with the same field semantics, so the SDK does not carry
-    a separate ``ReplyResult`` for it. ``status`` is ``TaskStatus.RUNNING``
-    -- the backend's atomic claim has already flipped the task row by the
-    time the response is built. The timestamp field is ``accepted_at``
-    (when the server scheduled execution), not ``created_at``.
+    same shape, so the SDK does not carry a separate ``ReplyResult`` for
+    it. For ``append()``, ``status`` is ``TaskStatus.PENDING`` when the
+    server queues the turn for its dispatcher and ``TaskStatus.RUNNING``
+    when it runs the turn in-process; ``reply()`` documents its own
+    status. The timestamp field is ``accepted_at``, not ``created_at``.
     """
 
     task_id: int

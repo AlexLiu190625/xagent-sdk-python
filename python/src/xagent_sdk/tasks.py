@@ -113,11 +113,12 @@ class TasksAPI:
     ) -> AppendResult:
         """``POST /v1/chat/tasks/{task_id}/messages`` -- append the next
         user turn to an existing task. Server returns 202 with
-        ``status='running'`` (the atomic claim has already flipped the
-        task row). Raises ``TaskBusy`` if the task is still running an
-        earlier turn, or ``InteractionResponseRequired`` if the task is
-        currently ``WAITING_FOR_USER`` -- answer its pending question
-        with ``reply()`` instead.
+        ``status='pending'`` when it queues the turn for its dispatcher,
+        or ``status='running'`` when it runs the turn in-process. Raises
+        ``TaskBusy`` if the task is still running an earlier turn, or
+        ``InteractionResponseRequired`` if the task is currently
+        ``WAITING_FOR_USER`` -- answer its pending question with
+        ``reply()`` instead.
         """
         body: dict[str, Any] = {
             "agent_id": agent_id,
