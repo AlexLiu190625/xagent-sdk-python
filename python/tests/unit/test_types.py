@@ -79,6 +79,12 @@ class TestParseAppend:
         assert isinstance(a.accepted_at, datetime)
         assert isinstance(a, AppendResult)
 
+    def test_queued_reply_status(self) -> None:
+        # reply() answers "queued" when the server stored the answer but
+        # is waiting for execution capacity.
+        a = _parse_append(response("reply_task_queued"))
+        assert a.status is TaskStatus.QUEUED
+
 
 class TestParseTaskInfo:
     def test_running_with_nulls(self) -> None:

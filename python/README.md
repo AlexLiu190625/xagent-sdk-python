@@ -262,6 +262,10 @@ with AgentClient() as agent:
         info = agent.tasks.wait(result.info.task_id)
 ```
 
+If `reply()` returns `status=TaskStatus.QUEUED`, `wait()` returns at
+once with the same `WAITING_FOR_USER` question you just answered; do not
+answer it again (that raises `TaskBusy`), poll again later.
+
 `reply()` resumes the task's paused execution -- the same server-side
 run continues rather than a new one starting, unlike `append()` -- but
 that continuity is internal server state; the `AppendResult` it returns
@@ -375,7 +379,7 @@ only.
 | `AgentClient(api_key, base_url, ...)` | `AgentClient` | env-var fallback: `XAGENT_API_KEY` / `XAGENT_BASE_URL` |
 | `agent.tasks.create(*, agent_id, message, metadata=None, dispatch_class=None, priority=None)` | `CreateTaskResult` | POST `/v1/chat/tasks`; returns immediately, `status='pending'` when the server queues the task for its dispatcher or `'running'` when it runs the task in-process; `dispatch_class` (`'interactive'`/`'batch'`) and `priority` (-10..10) apply to the new task only, the server validates them (422 → `InvalidInput`) and an older server ignores them; the result's `dispatch_class` shows the class the server gave the start command (`None` if not dispatched through a queue or on an older server) |
 | `agent.tasks.append(task_id, *, agent_id, message, metadata=None)` | `AppendResult` | POST `/v1/chat/tasks/{id}/messages`; `status='pending'` (queued) or `'running'` (in-process); raises `TaskBusy` if prior turn is still running, `InteractionResponseRequired` if `WAITING_FOR_USER` |
-| `agent.tasks.reply(task_id, *, agent_id, message)` | `AppendResult` | POST `/v1/chat/tasks/{id}/reply`; answers a `WAITING_FOR_USER` task's pending question and resumes its server-side run (no `run_id` field on the response to check); not idempotent |
+| `agent.tasks.reply(task_id, *, agent_id, message)` | `AppendResult` | POST `/v1/chat/tasks/{id}/reply`; `status='running'`, or `'queued'` when the server stored the answer but is waiting for execution capacity (the task stays `WAITING_FOR_USER` until then); answers a `WAITING_FOR_USER` task's pending question and resumes its server-side run (no `run_id` field on the response to check); not idempotent |
 | `agent.tasks.get(task_id)` | `TaskInfo` | GET `/v1/chat/tasks/{id}`; latest-turn `input`/`output`; `pending_interaction` when `WAITING_FOR_USER` |
 | `agent.tasks.steps(task_id)` | `list[Step]` | GET `/v1/chat/tasks/{id}/steps`; full timeline |
 | `agent.tasks.events(task_id, *, timeout=None)` | `TaskEventStream` | GET `/v1/chat/tasks/{id}/events` (SSE); iterate decoded `StreamEvent` frames as the task runs; `closed_by` tells how the stream ended |
@@ -450,6 +454,9 @@ The minted runtime key is an ordinary agent key — drive it with
   ```
   See [Example 6](#6-answer-a-pending-question) above for the retry
   caveat (`reply()` is not idempotent).
+- `QUEUED` — only on a `reply()` result: the answer is stored but waits
+  for execution capacity; the task itself stays `WAITING_FOR_USER`, and
+  `get()`/`wait()` never return `QUEUED`
 - `COMPLETED`, `FAILED` — terminal; `wait()` returns
 
 ## Configuration

@@ -151,12 +151,22 @@ class TasksAPI:
         Only valid while the task is ``WAITING_FOR_USER``. Inspect
         ``TaskInfo.pending_interaction`` (from ``get()`` or ``wait()``)
         for the question -- and any structured ``interactions`` -- before
-        answering. Server returns 202 with ``status='running'``. Under
-        the hood this resumes the same server-side run the task had
-        before the reply, rather than starting a new one -- unlike
-        ``append()`` -- but that continuity is server state, not
-        something this call's ``AppendResult`` return value exposes;
-        there is no ``run_id`` field on it to check.
+        answering. Server returns 202 with ``status='running'`` once the
+        answer has resumed execution, or ``status='queued'`` when the
+        server stored the answer but is still waiting for execution
+        capacity. A queued answer is stored, but the server has not
+        checked it yet: the checks behind ``InteractionNotResumable`` and
+        ``TemporarilyUnavailable`` run later, after this call has
+        returned, and this call cannot report their outcome. Until the
+        server resumes it the task stays ``WAITING_FOR_USER``, so
+        ``wait()`` returns at once with that status and the question you
+        already answered, and another ``reply()`` in the meantime is
+        rejected with ``TaskBusy``. Under the hood this
+        resumes the same server-side run the task had before the reply,
+        rather than starting a new one -- unlike ``append()`` -- but
+        that continuity is server state, not something this call's
+        ``AppendResult`` return value exposes; there is no ``run_id``
+        field on it to check.
 
         Not idempotent: unlike ``create()``/``append()``, there is no
         request-level idempotency key backing this call, so a

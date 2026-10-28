@@ -1,0 +1,11 @@
+{
+  "command_id": "5bb58745-0000-4000-8000-000000000001",
+  "task_id": 10,
+  "agent_id": 7,
+  "workforce_id": null,
+  "status": "queued",
+  "accepted_at": "2026-05-10T03:05:00Z",
+  "run_id": "run_0a1b2c3d",
+  "state_version": 2,
+  "control_state": "waiting_for_user"
+}

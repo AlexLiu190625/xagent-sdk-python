@@ -205,6 +205,18 @@ class TestReply:
         assert isinstance(result, AppendResult)
         assert result.status is TaskStatus.RUNNING
 
+    def test_queued_answer_is_accepted(
+        self, make_client: Callable[..., AgentClient]
+    ) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(202, json=response("reply_task_queued"))
+
+        with make_client(handler) as c:
+            result = c.tasks.reply(10, agent_id=7, message="To Tokyo, next Friday")
+
+        assert isinstance(result, AppendResult)
+        assert result.status is TaskStatus.QUEUED
+
     def test_no_metadata_or_files_field_sent(
         self, make_client: Callable[..., AgentClient]
     ) -> None:
