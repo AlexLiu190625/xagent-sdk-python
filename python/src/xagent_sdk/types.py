@@ -157,8 +157,9 @@ class RotateKeyResult:
 class CreateTaskResult:
     """``POST /v1/chat/tasks`` 202 payload.
 
-    ``status`` is ``TaskStatus.RUNNING`` on current servers (older ones
-    may still report ``PENDING``); observe transitions via
+    ``status`` is ``TaskStatus.PENDING`` when the server queues the task
+    for its dispatcher, and ``TaskStatus.RUNNING`` when it runs the task
+    in-process; observe transitions via
     ``client.tasks.get()`` or ``client.tasks.wait()``.
 
     ``dispatch_class`` is the class the server gave the start command:

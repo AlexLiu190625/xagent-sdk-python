@@ -73,7 +73,9 @@ class TasksAPI:
         priority: int | None = None,
     ) -> CreateTaskResult:
         """``POST /v1/chat/tasks`` -- start a new task with the first user
-        message. The server returns 202 with ``status='running'``.
+        message. The server returns 202 with ``status='pending'`` when
+        it queues the task for its dispatcher, or ``status='running'``
+        when it runs the task in-process.
 
         ``dispatch_class`` (``'interactive'`` or ``'batch'``) and
         ``priority`` (an integer from -10 to 10, where an omitted value
