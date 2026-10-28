@@ -158,15 +158,16 @@ class TasksAPI:
         something this call's ``AppendResult`` return value exposes;
         there is no ``run_id`` field on it to check.
 
-        Not idempotent: unlike ``create()``/``append()``, this SDK
-        sends no request-level idempotency key with this call, so a
-        client-side timeout does not tell you whether the answer was
-        delivered -- retrying blindly can deliver it twice. If a call
-        times out or the connection drops, call ``get(task_id)``
-        first; only retry ``reply()`` if ``status`` is still
-        ``WAITING_FOR_USER``. That retry can raise ``TaskBusy`` while
-        the server is still handling the first answer; treat it as
-        delivered rather than retrying again. Even that check is not a
+        Not idempotent: this SDK sends no request-level idempotency key
+        with this call, so a client-side timeout does not tell you
+        whether the answer was delivered -- retrying blindly can deliver
+        it twice. If a call times out or the connection drops, call
+        ``get(task_id)`` first; only retry ``reply()`` if ``status`` is
+        still ``WAITING_FOR_USER``. That retry can raise ``TaskBusy``
+        while the server is still handling an earlier answer; it does
+        not mean your answer was applied (the earlier answer, which may
+        be another caller's, can still be rejected); call ``get()``
+        again later and repeat the check. Even that check is not a
         full guarantee: the first reply may have already been
         delivered and the agent may have immediately asked a *new*
         question, which also shows up as ``WAITING_FOR_USER``. If

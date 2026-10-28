@@ -414,7 +414,9 @@ def _validate_write(adapter: TypeAdapter[T], data: Any, what: str) -> T:
     The server has already accepted the write when this runs, so a body
     that does not validate must surface as the SDK's documented
     ``MalformedResponse`` rather than a raw pydantic ``ValidationError``;
-    callers should check ``get()`` before retrying.
+    callers must not resend the write blindly: a retried ``create()``
+    starts a second task, and a retried ``append()``/``reply()`` can send
+    the message twice.
     """
     try:
         return adapter.validate_python(_require_mapping(data, what))
@@ -424,7 +426,8 @@ def _validate_write(adapter: TypeAdapter[T], data: Any, what: str) -> T:
         )
         raise MalformedResponse(
             "malformed_response",
-            f"{what} response did not match the expected shape ({fields})",
+            f"{what} response did not match the expected shape ({fields}); "
+            "the server accepted the request",
             http_status=None,
         ) from exc
 
